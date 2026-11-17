@@ -1,7 +1,5 @@
--- Do not the cat
--- my boi bro ai
-
--- Flicker best script
+-- Placeholder Update #3
+-- DO NOT CAT
 
 if _G.a then
     for _, conn in pairs(_G.a) do
@@ -15,412 +13,427 @@ repeat task.wait() until game.Players.LocalPlayer
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local LocalPlayer = Players.LocalPlayer
+local Player = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
-local IsGhost = false
-local IsProcessing = false
-local RealCharacter = nil
-local GhostCharacter = nil
-local StatusButton = nil
+local Ghost = false
+local Busy = false
+local Character = nil
+local GhostChar = nil
+local ToggleButton = nil
 
-local SavedPartProps = {}
-local SavedDecals    = {}
+local PartProps = {}
+local DecalProps = {}
+local Connections = {}
 
-local connections = {}
+local ConfigFile = "GhostGUI_Position.txt"
 
-local CONFIG_FILE = "GhostGUI_Position.txt"
-
-local function SaveGUIPosition()
-    if not writefile then return end
-    local pos = StatusButton.Position
-    local data = string.format("%f,%d,%f,%d", pos.X.Scale, pos.X.Offset, pos.Y.Scale, pos.Y.Offset)
-    pcall(function() writefile(CONFIG_FILE, data) end)
+local function SavePosition()
+    if not writefile or not ToggleButton then return end
+    local Pos = ToggleButton.Position
+    local Data = string.format("%f,%d,%f,%d", Pos.X.Scale, Pos.X.Offset, Pos.Y.Scale, Pos.Y.Offset)
+    pcall(function() writefile(ConfigFile, Data) end)
 end
 
-local function LoadGUIPosition()
+local function LoadPosition()
     if not (readfile and isfile) then return nil end
-    local ok, exists = pcall(isfile, CONFIG_FILE)
-    if not ok or not exists then return nil end
-    local ok2, data = pcall(readfile, CONFIG_FILE)
-    if not ok2 or not data then return nil end
-    local xs, xo, ys, yo = data:match("([%d%.%-]+),([%d%.%-]+),([%d%.%-]+),([%d%.%-]+)")
-    if xs and xo and ys and yo then
-        return UDim2.new(tonumber(xs), tonumber(xo), tonumber(ys), tonumber(yo))
+    local Ok, Exists = pcall(isfile, ConfigFile)
+    if not Ok or not Exists then return nil end
+
+    local Ok2, Data = pcall(readfile, ConfigFile)
+    if not Ok2 or not Data then return nil end
+
+    local Xs, Xo, Ys, Yo = Data:match("([%d%.%-]+),([%d%.%-]+),([%d%.%-]+),([%d%.%-]+)")
+
+    if Xs and Xo and Ys and Yo then
+        return UDim2.new(tonumber(Xs), tonumber(Xo), tonumber(Ys), tonumber(Yo))
     end
+
     return nil
 end
 
 local function CreateGUI()
-    if LocalPlayer.PlayerGui:FindFirstChild("GhostGUI") then
-        LocalPlayer.PlayerGui.GhostGUI:Destroy()
+    if Player.PlayerGui:FindFirstChild("GhostGUI") then
+        Player.PlayerGui.GhostGUI:Destroy()
     end
 
     local ScreenGui = Instance.new("ScreenGui")
     ScreenGui.Name = "GhostGUI"
     ScreenGui.ResetOnSpawn = false
 
-    StatusButton = Instance.new("TextButton")
-    local UICorner = Instance.new("UICorner")
+    ToggleButton = Instance.new("TextButton")
+    local Corner = Instance.new("UICorner")
 
-    StatusButton.Size = UDim2.new(0, 140, 0, 50)
-    StatusButton.Position = LoadGUIPosition() or UDim2.new(0.5, -70, 0.15, 0)
-    StatusButton.Text = "Ghost: OFF"
-    StatusButton.Font = Enum.Font.GothamBold
-    StatusButton.TextSize = 16
-    StatusButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-    StatusButton.BackgroundColor3 = Color3.fromRGB(255, 85, 85)
-    StatusButton.Parent = ScreenGui
+    ToggleButton.Size = UDim2.new(0, 140, 0, 50)
+    ToggleButton.Position = LoadPosition() or UDim2.new(0.5, -70, 0.15, 0)
+    ToggleButton.Text = "Ghost: OFF"
+    ToggleButton.Font = Enum.Font.GothamBold
+    ToggleButton.TextSize = 16
+    ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    ToggleButton.BackgroundColor3 = Color3.fromRGB(255, 85, 85)
+    ToggleButton.Parent = ScreenGui
 
-    UICorner.CornerRadius = UDim.new(0, 10)
-    UICorner.Parent = StatusButton
-    ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+    Corner.CornerRadius = UDim.new(0, 10)
+    Corner.Parent = ToggleButton
 
-    local dragging = false
-    local dragStart
-    local startPos
-    local dragStartPos
-    local didDrag = false
+    ScreenGui.Parent = Player:WaitForChild("PlayerGui")
 
-    StatusButton.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-            didDrag = false
-            dragStart = input.Position
-            dragStartPos = input.Position
-            startPos = StatusButton.Position
+    local Dragging = false
+    local DragStart
+    local StartPos
+    local DragPos
+    local Moved = false
+
+    ToggleButton.InputBegan:Connect(function(Input)
+        if Input.UserInputType == Enum.UserInputType.MouseButton1 or Input.UserInputType == Enum.UserInputType.Touch then
+            Dragging = true
+            Moved = false
+            DragStart = Input.Position
+            DragPos = Input.Position
+            StartPos = ToggleButton.Position
         end
     end)
 
-    UserInputService.InputChanged:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-            if (input.Position - dragStartPos).Magnitude > 5 then
-                didDrag = true
+    UserInputService.InputChanged:Connect(function(Input)
+        if Dragging and (Input.UserInputType == Enum.UserInputType.MouseMovement or Input.UserInputType == Enum.UserInputType.Touch) then
+            if (Input.Position - DragPos).Magnitude > 5 then
+                Moved = true
             end
-            local delta = input.Position - dragStart
-            StatusButton.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+
+            local Delta = Input.Position - DragStart
+            ToggleButton.Position = UDim2.new(
+                StartPos.X.Scale,
+                StartPos.X.Offset + Delta.X,
+                StartPos.Y.Scale,
+                StartPos.Y.Offset + Delta.Y
+            )
         end
     end)
 
-    UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = false
-            if didDrag then
-                SaveGUIPosition()
+    UserInputService.InputEnded:Connect(function(Input)
+        if Input.UserInputType == Enum.UserInputType.MouseButton1 or Input.UserInputType == Enum.UserInputType.Touch then
+            Dragging = false
+            if Moved then
+                SavePosition()
             end
         end
     end)
 
-    StatusButton.MouseButton1Click:Connect(function()
-        if didDrag then return end
-        if _G.ToggleGhost then _G.ToggleGhost() end
+    ToggleButton.MouseButton1Click:Connect(function()
+        if Moved then return end
+        if _G.ToggleGhost then
+            _G.ToggleGhost()
+        end
     end)
 end
 
-local function SaveOriginalState()
-    SavedPartProps = {}
-    SavedDecals = {}
-    if not RealCharacter then return end
-    for _, v in ipairs(RealCharacter:GetDescendants()) do
-        if v:IsA("BasePart") then
-            SavedPartProps[v] = {
-                Transparency = v.Transparency,
-                CanCollide   = v.CanCollide,
-                CanTouch     = v.CanTouch,
+local function SaveState()
+    PartProps = {}
+    DecalProps = {}
+
+    if not Character then return end
+
+    for _, Obj in ipairs(Character:GetDescendants()) do
+        if Obj:IsA("BasePart") then
+            PartProps[Obj] = {
+                Transparency = Obj.Transparency,
+                CanCollide = Obj.CanCollide,
+                CanTouch = Obj.CanTouch
             }
-        elseif v:IsA("Decal") or v:IsA("Texture") then
-            SavedDecals[v] = v.Transparency
+        elseif Obj:IsA("Decal") or Obj:IsA("Texture") then
+            DecalProps[Obj] = Obj.Transparency
         end
     end
 end
 
-local function HideRealBody()
-    if not RealCharacter or not RealCharacter.Parent then return end
-    for _, v in ipairs(RealCharacter:GetDescendants()) do
+local function HideCharacter()
+    if not Character or not Character.Parent then return end
+
+    for _, Obj in ipairs(Character:GetDescendants()) do
         pcall(function()
-            if v:IsA("BasePart") then
-                v.Transparency = 1
-                v.CanCollide = false
-                v.CanTouch = false
-            elseif v:IsA("Decal") or v:IsA("Texture") then
-                v.Transparency = 1
-            elseif v:IsA("BillboardGui") or v:IsA("Highlight") then
-                v.Enabled = false
+            if Obj:IsA("BasePart") then
+                Obj.Transparency = 1
+                Obj.CanCollide = false
+                Obj.CanTouch = false
+            elseif Obj:IsA("Decal") or Obj:IsA("Texture") then
+                Obj.Transparency = 1
+            elseif Obj:IsA("BillboardGui") or Obj:IsA("Highlight") then
+                Obj.Enabled = false
             end
         end)
     end
 end
 
-local function ShowRealBody()
-    if not RealCharacter or not RealCharacter.Parent then return end
-    for _, v in ipairs(RealCharacter:GetDescendants()) do
+local function ShowCharacter()
+    if not Character or not Character.Parent then return end
+
+    for _, Obj in ipairs(Character:GetDescendants()) do
         pcall(function()
-            if v:IsA("BasePart") then
-                local orig = SavedPartProps[v]
-                if v.Name == "HumanoidRootPart" then
-                    v.Transparency = 1
-                    v.CanCollide = orig and orig.CanCollide or false
-                    v.CanTouch   = orig and orig.CanTouch   or false
-                elseif orig then
-                    v.Transparency = orig.Transparency
-                    v.CanCollide   = orig.CanCollide
-                    v.CanTouch     = orig.CanTouch
+            if Obj:IsA("BasePart") then
+                local Original = PartProps[Obj]
+
+                if Obj.Name == "HumanoidRootPart" then
+                    Obj.Transparency = 1
+                    Obj.CanCollide = Original and Original.CanCollide or false
+                    Obj.CanTouch = Original and Original.CanTouch or false
+                elseif Original then
+                    Obj.Transparency = Original.Transparency
+                    Obj.CanCollide = Original.CanCollide
+                    Obj.CanTouch = Original.CanTouch
                 else
-                    v.Transparency = 0
-                    v.CanCollide   = true
-                    v.CanTouch     = true
+                    Obj.Transparency = 0
+                    Obj.CanCollide = true
+                    Obj.CanTouch = true
                 end
-            elseif v:IsA("Decal") or v:IsA("Texture") then
-                v.Transparency = SavedDecals[v] or 0
-            elseif v:IsA("BillboardGui") or v:IsA("Highlight") then
-                v.Enabled = true
+            elseif Obj:IsA("Decal") or Obj:IsA("Texture") then
+                Obj.Transparency = DecalProps[Obj] or 0
+            elseif Obj:IsA("BillboardGui") or Obj:IsA("Highlight") then
+                Obj.Enabled = true
             end
         end)
     end
 end
 
-local function PinAt(hrp, cf, frames)
-    if not hrp or not cf then return end
-    local wasAnchored = hrp.Anchored
-    hrp.Anchored = true
-    for _ = 1, (frames or 4) do
-        if not hrp.Parent then break end
-        hrp.CFrame = cf
-        hrp.AssemblyLinearVelocity  = Vector3.zero
-        hrp.AssemblyAngularVelocity = Vector3.zero
+local function StopVelocity(Part, Frames)
+    if not Part then return end
+
+    for _ = 1, (Frames or 3) do
+        if not Part.Parent then return end
+
+        Part.AssemblyLinearVelocity = Vector3.zero
+        Part.AssemblyAngularVelocity = Vector3.zero
+
         RunService.Heartbeat:Wait()
-    end
-    if hrp.Parent then
-        hrp.Anchored = wasAnchored
     end
 end
 
 _G.ToggleGhost = function()
-    if IsProcessing then return end
-    IsProcessing = true
-    IsGhost = not IsGhost
+    if Busy then return end
 
-    if IsGhost then
-        RealCharacter = LocalPlayer.Character
-        if not RealCharacter then
-            IsGhost = false
-            IsProcessing = false
+    Busy = true
+    Ghost = not Ghost
+
+    if Ghost then
+        Character = Player.Character
+
+        if not Character then
+            Ghost = false
+            Busy = false
             return
         end
 
-        SaveOriginalState()
+        SaveState()
 
-        local realHRP = RealCharacter:FindFirstChild("HumanoidRootPart") or RealCharacter.PrimaryPart
-        local startCFrame = realHRP and realHRP.CFrame
+        local Root = Character:FindFirstChild("HumanoidRootPart") or Character.PrimaryPart
+        local StartCFrame = Root and Root.CFrame
 
-        local savedCamCFrame = Camera.CFrame
-        local savedCamFocus  = Camera.Focus
-        local prevCameraType = Camera.CameraType
+        local CamCFrame = Camera.CFrame
+        local CamFocus = Camera.Focus
+        local CamType = Camera.CameraType
+
         Camera.CameraType = Enum.CameraType.Scriptable
 
-        RealCharacter.Archivable = true
-        GhostCharacter = RealCharacter:Clone()
-        GhostCharacter.Name = "LocalGhost"
+        Character.Archivable = true
+        GhostChar = Character:Clone()
+        GhostChar.Name = "LocalGhost"
 
-        for _, v in ipairs(GhostCharacter:GetDescendants()) do
+        for _, Obj in ipairs(GhostChar:GetDescendants()) do
             pcall(function()
-                if v:IsA("BasePart") then
-                    if v.Name == "HumanoidRootPart" then
-                        v.Transparency = 1
-                    else
-                        v.Transparency = 0.5
-                    end
-                    v.CanCollide = false
-                    v.CanTouch = false
-                elseif v:IsA("Decal") or v:IsA("Texture") then
-                    v.Transparency = 0.5
+                if Obj:IsA("BasePart") then
+                    Obj.Transparency = Obj.Name == "HumanoidRootPart" and 1 or 0.5
+                    Obj.CanCollide = false
+                    Obj.CanTouch = false
+                elseif Obj:IsA("Decal") or Obj:IsA("Texture") then
+                    Obj.Transparency = 0.5
                 end
             end)
         end
 
-        local gHRP = GhostCharacter:FindFirstChild("HumanoidRootPart")
-        local gHum = GhostCharacter:FindFirstChildOfClass("Humanoid")
+        local GhostRoot = GhostChar:FindFirstChild("HumanoidRootPart")
+        local GhostHum = GhostChar:FindFirstChildOfClass("Humanoid")
 
-        if gHRP and startCFrame then
-            gHRP.CFrame = startCFrame
-            gHRP.AssemblyLinearVelocity  = Vector3.zero
-            gHRP.AssemblyAngularVelocity = Vector3.zero
+        if GhostRoot and StartCFrame then
+            GhostRoot.CFrame = StartCFrame
+            GhostRoot.AssemblyLinearVelocity = Vector3.zero
+            GhostRoot.AssemblyAngularVelocity = Vector3.zero
         end
 
-        GhostCharacter.Parent = workspace
+        GhostChar.Parent = workspace
 
-        if realHRP then
-            realHRP.Anchored = true
-            realHRP.AssemblyLinearVelocity  = Vector3.zero
-            realHRP.AssemblyAngularVelocity = Vector3.zero
+        if Root then
+            Root.Anchored = true
+            Root.AssemblyLinearVelocity = Vector3.zero
+            Root.AssemblyAngularVelocity = Vector3.zero
         end
 
-        LocalPlayer.Character = GhostCharacter
+        Player.Character = GhostChar
 
-        if gHum then
-            gHum.Health = math.huge
-            Camera.CameraSubject = gHum
+        if GhostHum then
+            GhostHum.Health = math.huge
+            Camera.CameraSubject = GhostHum
         end
 
-        Camera.CFrame = savedCamCFrame
-        Camera.Focus  = savedCamFocus
+        Camera.CFrame = CamCFrame
+        Camera.Focus = CamFocus
 
-        HideRealBody()
+        HideCharacter()
 
         task.spawn(function()
-            PinAt(gHRP, startCFrame, 4)
-            Camera.CFrame = savedCamCFrame
-            Camera.Focus  = savedCamFocus
+            StopVelocity(GhostRoot, 3)
+
+            Camera.CFrame = CamCFrame
+            Camera.Focus = CamFocus
             RunService.RenderStepped:Wait()
-            Camera.CFrame = savedCamCFrame
-            Camera.Focus  = savedCamFocus
+
+            Camera.CFrame = CamCFrame
+            Camera.Focus = CamFocus
             RunService.RenderStepped:Wait()
-            Camera.CFrame = savedCamCFrame
-            Camera.Focus  = savedCamFocus
-            Camera.CameraType = prevCameraType
+
+            Camera.CFrame = CamCFrame
+            Camera.Focus = CamFocus
+            Camera.CameraType = CamType
         end)
 
-        StatusButton.Text = "Ghost: ON"
-        StatusButton.BackgroundColor3 = Color3.fromRGB(85, 255, 127)
+        ToggleButton.Text = "Ghost: ON"
+        ToggleButton.BackgroundColor3 = Color3.fromRGB(85, 255, 127)
 
     else
-        --========== TURN OFF ==========
-        local savedCamCFrame = Camera.CFrame
-        local savedCamFocus  = Camera.Focus
-        local prevCameraType = Camera.CameraType
+        local CamCFrame = Camera.CFrame
+        local CamFocus = Camera.Focus
+        local CamType = Camera.CameraType
+
         Camera.CameraType = Enum.CameraType.Scriptable
 
-        local finalPos = nil
-        if GhostCharacter then
-            finalPos = GhostCharacter:GetPivot()
+        local FinalPos = GhostChar and GhostChar:GetPivot()
+
+        local Target = Character
+
+        if not Target or not Target.Parent then
+            Target = Player.Character
+            Character = Target
         end
 
-        local targetChar = RealCharacter
-        if not targetChar or not targetChar.Parent then
-            targetChar = LocalPlayer.Character
-            RealCharacter = targetChar
-        end
+        if Target and Target.Parent then
+            local Root = Target:FindFirstChild("HumanoidRootPart") or Target.PrimaryPart
+            local Hum = Target:FindFirstChildOfClass("Humanoid")
 
-        if targetChar and targetChar.Parent then
-            local realHRP = targetChar:FindFirstChild("HumanoidRootPart") or targetChar.PrimaryPart
-            local realHum = targetChar:FindFirstChildOfClass("Humanoid")
-
-            ShowRealBody()
-
-            if realHRP then
-                realHRP.Anchored = true
-                realHRP.AssemblyLinearVelocity  = Vector3.zero
-                realHRP.AssemblyAngularVelocity = Vector3.zero
+            if FinalPos then
+                Target:PivotTo(FinalPos)
             end
 
-            if finalPos then
-                targetChar:PivotTo(finalPos)
+            ShowCharacter()
+
+            if Root then
+                Root.Anchored = false
+                Root.AssemblyLinearVelocity = Vector3.zero
+                Root.AssemblyAngularVelocity = Vector3.zero
             end
 
-            LocalPlayer.Character = targetChar
+            Player.Character = Target
 
-            if realHum then
-                Camera.CameraSubject = realHum
-                -- FIX: only reset if actually set — avoids spurious state resets
-                if realHum.PlatformStand then realHum.PlatformStand = false end
-                if realHum.Sit then realHum.Sit = false end
+            if Hum then
+                Camera.CameraSubject = Hum
 
+                if Hum.PlatformStand then
+                    Hum.PlatformStand = false
+                end
+
+                if Hum.Sit then
+                    Hum.Sit = false
+                end
             end
 
-            Camera.CFrame = savedCamCFrame
-            Camera.Focus  = savedCamFocus
+            Camera.CFrame = CamCFrame
+            Camera.Focus = CamFocus
 
-            if GhostCharacter then
-                GhostCharacter:Destroy()
-                GhostCharacter = nil
+            if GhostChar then
+                GhostChar:Destroy()
+                GhostChar = nil
             end
 
             task.spawn(function()
+                StopVelocity(Root, 3)
 
-                PinAt(realHRP, finalPos, 4)
-                if realHRP and realHRP.Parent then
-                    realHRP.Anchored = false
-                end
-                Camera.CFrame = savedCamCFrame
-                Camera.Focus  = savedCamFocus
+                Camera.CFrame = CamCFrame
+                Camera.Focus = CamFocus
                 RunService.RenderStepped:Wait()
-                Camera.CFrame = savedCamCFrame
-                Camera.Focus  = savedCamFocus
+
+                Camera.CFrame = CamCFrame
+                Camera.Focus = CamFocus
                 RunService.RenderStepped:Wait()
-                Camera.CFrame = savedCamCFrame
-                Camera.Focus  = savedCamFocus
-                Camera.CameraType = prevCameraType
+
+                Camera.CFrame = CamCFrame
+                Camera.Focus = CamFocus
+                Camera.CameraType = CamType
             end)
         else
-            if GhostCharacter then
-                GhostCharacter:Destroy()
-                GhostCharacter = nil
+            if GhostChar then
+                GhostChar:Destroy()
+                GhostChar = nil
             end
-            Camera.CameraType = prevCameraType
+
+            Camera.CameraType = CamType
         end
 
-        StatusButton.Text = "Ghost: OFF"
-        StatusButton.BackgroundColor3 = Color3.fromRGB(255, 85, 85)
+        ToggleButton.Text = "Ghost: OFF"
+        ToggleButton.BackgroundColor3 = Color3.fromRGB(255, 85, 85)
     end
 
     task.wait(0.2)
-    IsProcessing = false
+    Busy = false
 end
 
 CreateGUI()
 
-table.insert(connections, UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if not gameProcessed and input.KeyCode == Enum.KeyCode.G then
+table.insert(Connections, UserInputService.InputBegan:Connect(function(Input, Processed)
+    if not Processed and Input.KeyCode == Enum.KeyCode.G then
         _G.ToggleGhost()
     end
 end))
 
-table.insert(connections, RunService.Stepped:Connect(function()
-    if IsGhost and not IsProcessing and RealCharacter and GhostCharacter then
-        if LocalPlayer.Character ~= GhostCharacter then
-            LocalPlayer.Character = GhostCharacter
+table.insert(Connections, RunService.Stepped:Connect(function()
+    if Ghost and not Busy and Character and GhostChar then
+        if Player.Character ~= GhostChar then
+            Player.Character = GhostChar
         end
 
-        local ghostHum = GhostCharacter:FindFirstChildOfClass("Humanoid")
-        if ghostHum and Camera.CameraSubject ~= ghostHum then
-            Camera.CameraSubject = ghostHum
+        local GhostHum = GhostChar:FindFirstChildOfClass("Humanoid")
+
+        if GhostHum and Camera.CameraSubject ~= GhostHum then
+            Camera.CameraSubject = GhostHum
         end
 
-        for _, v in ipairs(GhostCharacter:GetDescendants()) do
+        for _, Obj in ipairs(GhostChar:GetDescendants()) do
             pcall(function()
-                if v:IsA("BasePart") then
-                    if v.Name == "HumanoidRootPart" then
-                        v.Transparency = 1
-                    else
-                        v.Transparency = 0.5
-                    end
-                elseif v:IsA("Decal") or v:IsA("Texture") then
-                    v.Transparency = 0.5
+                if Obj:IsA("BasePart") then
+                    Obj.Transparency = Obj.Name == "HumanoidRootPart" and 1 or 0.5
+                elseif Obj:IsA("Decal") or Obj:IsA("Texture") then
+                    Obj.Transparency = 0.5
                 end
             end)
         end
 
-        local hrp = RealCharacter:FindFirstChild("HumanoidRootPart") or RealCharacter.PrimaryPart
-        local realHum = RealCharacter:FindFirstChildOfClass("Humanoid")
+        local Root = Character:FindFirstChild("HumanoidRootPart") or Character.PrimaryPart
+        local Hum = Character:FindFirstChildOfClass("Humanoid")
 
-        if hrp then
-            hrp.Anchored = true
-            hrp.AssemblyLinearVelocity  = Vector3.zero
-            hrp.AssemblyAngularVelocity = Vector3.zero
+        if Root then
+            Root.Anchored = true
+            Root.AssemblyLinearVelocity = Vector3.zero
+            Root.AssemblyAngularVelocity = Vector3.zero
         end
 
-        HideRealBody()
+        HideCharacter()
 
-        if realHum then
-            realHum.Health = realHum.MaxHealth
+        if Hum then
+            Hum.Health = Hum.MaxHealth
         end
     end
 end))
 
-table.insert(connections, LocalPlayer.CharacterAdded:Connect(function()
-    if IsGhost then
+table.insert(Connections, Player.CharacterAdded:Connect(function()
+    if Ghost then
         _G.ToggleGhost()
     end
 end))
 
-_G.a = connections
+_G.a = Connections
