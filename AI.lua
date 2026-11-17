@@ -1,6 +1,6 @@
--- DID YOU KNOW THAT I AM NOT AJKAHJRHR
+-- Do not the cat
 
--- AI ghost for flicker (fixed: restores original CanCollide/CanTouch)
+-- Flicker best script
 
 if _G.a then
     for _, conn in pairs(_G.a) do
@@ -23,9 +23,8 @@ local RealCharacter = nil
 local GhostCharacter = nil
 local StatusButton = nil
 
--- FIX: keep track of the ORIGINAL properties of every part and decal
-local SavedPartProps = {}  -- [BasePart] = {Transparency, CanCollide, CanTouch}
-local SavedDecals    = {}  -- [Decal/Texture] = Transparency
+local SavedPartProps = {}
+local SavedDecals    = {}
 
 local connections = {}
 
@@ -120,8 +119,6 @@ local function CreateGUI()
 end
 
 --===================== State save/restore =====================
--- FIX: capture the TRUE original physics/visual properties once, so we can
--- put them back exactly, instead of forcing every part to collide.
 local function SaveOriginalState()
     SavedPartProps = {}
     SavedDecals = {}
@@ -163,18 +160,14 @@ local function ShowRealBody()
             if v:IsA("BasePart") then
                 local orig = SavedPartProps[v]
                 if v.Name == "HumanoidRootPart" then
-                    -- by design HRP stays invisible
                     v.Transparency = 1
                     v.CanCollide = orig and orig.CanCollide or false
                     v.CanTouch   = orig and orig.CanTouch   or false
                 elseif orig then
-                    -- FIX: put back the exact originals so accessories stay
-                    -- non-collidable and don't inflate the hitbox
                     v.Transparency = orig.Transparency
                     v.CanCollide   = orig.CanCollide
                     v.CanTouch     = orig.CanTouch
                 else
-                    -- part appeared during ghost mode (tool, etc.) → sane defaults
                     v.Transparency = 0
                     v.CanCollide   = true
                     v.CanTouch     = true
@@ -188,15 +181,22 @@ local function ShowRealBody()
     end
 end
 
-local function SettleAt(part, hum, cf, frames)
-    if not part or not cf then return end
+-- FIX: pins HRP at a CFrame while keeping it anchored during the settle,
+-- then RESTORES whatever Anchored state it had before.
+-- No ChangeState calls -> idle animation is never interrupted.
+local function PinAt(hrp, cf, frames)
+    if not hrp or not cf then return end
+    local wasAnchored = hrp.Anchored
+    hrp.Anchored = true
     for _ = 1, (frames or 4) do
-        if not part.Parent then return end
-        part.CFrame = cf
-        part.AssemblyLinearVelocity = Vector3.zero
-        part.AssemblyAngularVelocity = Vector3.zero
-        if hum then hum:ChangeState(Enum.HumanoidStateType.Running) end
+        if not hrp.Parent then break end
+        hrp.CFrame = cf
+        hrp.AssemblyLinearVelocity  = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
         RunService.Heartbeat:Wait()
+    end
+    if hrp.Parent then
+        hrp.Anchored = wasAnchored
     end
 end
 
@@ -215,7 +215,6 @@ _G.ToggleGhost = function()
             return
         end
 
-        -- FIX: snapshot originals BEFORE we touch anything
         SaveOriginalState()
 
         local realHRP = RealCharacter:FindFirstChild("HumanoidRootPart") or RealCharacter.PrimaryPart
@@ -251,7 +250,7 @@ _G.ToggleGhost = function()
 
         if gHRP and startCFrame then
             gHRP.CFrame = startCFrame
-            gHRP.AssemblyLinearVelocity = Vector3.zero
+            gHRP.AssemblyLinearVelocity  = Vector3.zero
             gHRP.AssemblyAngularVelocity = Vector3.zero
         end
 
@@ -259,7 +258,7 @@ _G.ToggleGhost = function()
 
         if realHRP then
             realHRP.Anchored = true
-            realHRP.AssemblyLinearVelocity = Vector3.zero
+            realHRP.AssemblyLinearVelocity  = Vector3.zero
             realHRP.AssemblyAngularVelocity = Vector3.zero
         end
 
@@ -267,7 +266,8 @@ _G.ToggleGhost = function()
 
         if gHum then
             gHum.Health = math.huge
-            gHum:ChangeState(Enum.HumanoidStateType.Running)
+            -- FIX: removed gHum:ChangeState(Running) — let it stay in whatever
+            -- state it was cloned with so no animation flash on ON either.
             Camera.CameraSubject = gHum
         end
 
@@ -277,7 +277,7 @@ _G.ToggleGhost = function()
         HideRealBody()
 
         task.spawn(function()
-            SettleAt(gHRP, gHum, startCFrame, 4)
+            PinAt(gHRP, startCFrame, 4)
             Camera.CFrame = savedCamCFrame
             Camera.Focus  = savedCamFocus
             RunService.RenderStepped:Wait()
@@ -314,25 +314,30 @@ _G.ToggleGhost = function()
             local realHRP = targetChar:FindFirstChild("HumanoidRootPart") or targetChar.PrimaryPart
             local realHum = targetChar:FindFirstChildOfClass("Humanoid")
 
-            -- FIX: restores exact originals (accessories stay non-collidable)
             ShowRealBody()
+
+            -- FIX: keep real HRP anchored through teleport + settle.
+            -- Anchored humanoids do NOT transition to Freefall/Land, so the
+            -- idle animation is never interrupted.
+            if realHRP then
+                realHRP.Anchored = true
+                realHRP.AssemblyLinearVelocity  = Vector3.zero
+                realHRP.AssemblyAngularVelocity = Vector3.zero
+            end
 
             if finalPos then
                 targetChar:PivotTo(finalPos)
-            end
-            if realHRP then
-                realHRP.AssemblyLinearVelocity = Vector3.zero
-                realHRP.AssemblyAngularVelocity = Vector3.zero
-                realHRP.Anchored = false
             end
 
             LocalPlayer.Character = targetChar
 
             if realHum then
                 Camera.CameraSubject = realHum
-                realHum.PlatformStand = false
-                realHum.Sit = false
-                realHum:ChangeState(Enum.HumanoidStateType.Running)
+                -- FIX: only reset if actually set — avoids spurious state resets
+                if realHum.PlatformStand then realHum.PlatformStand = false end
+                if realHum.Sit then realHum.Sit = false end
+                -- FIX: removed realHum:ChangeState(Running) — this was the
+                -- main cause of the idle reset tell.
             end
 
             Camera.CFrame = savedCamCFrame
@@ -344,7 +349,12 @@ _G.ToggleGhost = function()
             end
 
             task.spawn(function()
-                SettleAt(realHRP, realHum, finalPos, 4)
+                -- real HRP is already anchored; PinAt keeps it anchored
+                -- through the settle, then we unanchor AFTER.
+                PinAt(realHRP, finalPos, 4)
+                if realHRP and realHRP.Parent then
+                    realHRP.Anchored = false
+                end
                 Camera.CFrame = savedCamCFrame
                 Camera.Focus  = savedCamFocus
                 RunService.RenderStepped:Wait()
@@ -410,7 +420,7 @@ table.insert(connections, RunService.Stepped:Connect(function()
 
         if hrp then
             hrp.Anchored = true
-            hrp.AssemblyLinearVelocity = Vector3.zero
+            hrp.AssemblyLinearVelocity  = Vector3.zero
             hrp.AssemblyAngularVelocity = Vector3.zero
         end
 
