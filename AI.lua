@@ -1,4 +1,6 @@
--- AI ghost for flicker (fixed)
+-- DID YOU KNOW THAT I AM NOT AJKAHJRHR
+
+-- AI ghost for flicker (fixed: restores original CanCollide/CanTouch)
 
 if _G.a then
     for _, conn in pairs(_G.a) do
@@ -20,9 +22,35 @@ local IsProcessing = false
 local RealCharacter = nil
 local GhostCharacter = nil
 local StatusButton = nil
-local SavedDecals = {} -- [Decal/Texture] = original Transparency
+
+-- FIX: keep track of the ORIGINAL properties of every part and decal
+local SavedPartProps = {}  -- [BasePart] = {Transparency, CanCollide, CanTouch}
+local SavedDecals    = {}  -- [Decal/Texture] = Transparency
 
 local connections = {}
+
+--===================== Config persistence =====================
+local CONFIG_FILE = "GhostGUI_Position.txt"
+
+local function SaveGUIPosition()
+    if not writefile then return end
+    local pos = StatusButton.Position
+    local data = string.format("%f,%d,%f,%d", pos.X.Scale, pos.X.Offset, pos.Y.Scale, pos.Y.Offset)
+    pcall(function() writefile(CONFIG_FILE, data) end)
+end
+
+local function LoadGUIPosition()
+    if not (readfile and isfile) then return nil end
+    local ok, exists = pcall(isfile, CONFIG_FILE)
+    if not ok or not exists then return nil end
+    local ok2, data = pcall(readfile, CONFIG_FILE)
+    if not ok2 or not data then return nil end
+    local xs, xo, ys, yo = data:match("([%d%.%-]+),([%d%.%-]+),([%d%.%-]+),([%d%.%-]+)")
+    if xs and xo and ys and yo then
+        return UDim2.new(tonumber(xs), tonumber(xo), tonumber(ys), tonumber(yo))
+    end
+    return nil
+end
 
 --===================== GUI =====================
 local function CreateGUI()
@@ -38,7 +66,7 @@ local function CreateGUI()
     local UICorner = Instance.new("UICorner")
 
     StatusButton.Size = UDim2.new(0, 140, 0, 50)
-    StatusButton.Position = UDim2.new(0.5, -70, 0.15, 0)
+    StatusButton.Position = LoadGUIPosition() or UDim2.new(0.5, -70, 0.15, 0)
     StatusButton.Text = "Ghost: OFF"
     StatusButton.Font = Enum.Font.GothamBold
     StatusButton.TextSize = 16
@@ -50,32 +78,67 @@ local function CreateGUI()
     UICorner.Parent = StatusButton
     ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
-    local dragging, dragStart, startPos
+    local dragging = false
+    local dragStart
+    local startPos
+    local dragStartPos
+    local didDrag = false
+
     StatusButton.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = true
+            didDrag = false
             dragStart = input.Position
+            dragStartPos = input.Position
             startPos = StatusButton.Position
         end
     end)
+
     UserInputService.InputChanged:Connect(function(input)
         if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            if (input.Position - dragStartPos).Magnitude > 5 then
+                didDrag = true
+            end
             local delta = input.Position - dragStart
             StatusButton.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
         end
     end)
+
     UserInputService.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = false
+            if didDrag then
+                SaveGUIPosition()
+            end
         end
     end)
 
     StatusButton.MouseButton1Click:Connect(function()
+        if didDrag then return end
         if _G.ToggleGhost then _G.ToggleGhost() end
     end)
 end
 
---===================== Helpers =====================
+--===================== State save/restore =====================
+-- FIX: capture the TRUE original physics/visual properties once, so we can
+-- put them back exactly, instead of forcing every part to collide.
+local function SaveOriginalState()
+    SavedPartProps = {}
+    SavedDecals = {}
+    if not RealCharacter then return end
+    for _, v in ipairs(RealCharacter:GetDescendants()) do
+        if v:IsA("BasePart") then
+            SavedPartProps[v] = {
+                Transparency = v.Transparency,
+                CanCollide   = v.CanCollide,
+                CanTouch     = v.CanTouch,
+            }
+        elseif v:IsA("Decal") or v:IsA("Texture") then
+            SavedDecals[v] = v.Transparency
+        end
+    end
+end
+
 local function HideRealBody()
     if not RealCharacter or not RealCharacter.Parent then return end
     for _, v in ipairs(RealCharacter:GetDescendants()) do
@@ -85,8 +148,6 @@ local function HideRealBody()
                 v.CanCollide = false
                 v.CanTouch = false
             elseif v:IsA("Decal") or v:IsA("Texture") then
-                -- FIX #2: hide face/decals too so nothing floats
-                if SavedDecals[v] == nil then SavedDecals[v] = v.Transparency end
                 v.Transparency = 1
             elseif v:IsA("BillboardGui") or v:IsA("Highlight") then
                 v.Enabled = false
@@ -100,14 +161,24 @@ local function ShowRealBody()
     for _, v in ipairs(RealCharacter:GetDescendants()) do
         pcall(function()
             if v:IsA("BasePart") then
+                local orig = SavedPartProps[v]
                 if v.Name == "HumanoidRootPart" then
+                    -- by design HRP stays invisible
                     v.Transparency = 1
-                    v.CanCollide = false
+                    v.CanCollide = orig and orig.CanCollide or false
+                    v.CanTouch   = orig and orig.CanTouch   or false
+                elseif orig then
+                    -- FIX: put back the exact originals so accessories stay
+                    -- non-collidable and don't inflate the hitbox
+                    v.Transparency = orig.Transparency
+                    v.CanCollide   = orig.CanCollide
+                    v.CanTouch     = orig.CanTouch
                 else
+                    -- part appeared during ghost mode (tool, etc.) → sane defaults
                     v.Transparency = 0
-                    v.CanCollide = true
+                    v.CanCollide   = true
+                    v.CanTouch     = true
                 end
-                v.CanTouch = true
             elseif v:IsA("Decal") or v:IsA("Texture") then
                 v.Transparency = SavedDecals[v] or 0
             elseif v:IsA("BillboardGui") or v:IsA("Highlight") then
@@ -117,8 +188,6 @@ local function ShowRealBody()
     end
 end
 
--- FIX #3: hold a character at an exact CFrame for a few frames
--- so the humanoid doesn't do the little "pop up and drop" settle.
 local function SettleAt(part, hum, cf, frames)
     if not part or not cf then return end
     for _ = 1, (frames or 4) do
@@ -139,7 +208,6 @@ _G.ToggleGhost = function()
 
     if IsGhost then
         --========== TURN ON ==========
-        SavedDecals = {}
         RealCharacter = LocalPlayer.Character
         if not RealCharacter then
             IsGhost = false
@@ -147,9 +215,16 @@ _G.ToggleGhost = function()
             return
         end
 
+        -- FIX: snapshot originals BEFORE we touch anything
+        SaveOriginalState()
+
         local realHRP = RealCharacter:FindFirstChild("HumanoidRootPart") or RealCharacter.PrimaryPart
         local startCFrame = realHRP and realHRP.CFrame
+
         local savedCamCFrame = Camera.CFrame
+        local savedCamFocus  = Camera.Focus
+        local prevCameraType = Camera.CameraType
+        Camera.CameraType = Enum.CameraType.Scriptable
 
         RealCharacter.Archivable = true
         GhostCharacter = RealCharacter:Clone()
@@ -171,26 +246,23 @@ _G.ToggleGhost = function()
             end)
         end
 
-        GhostCharacter.Parent = workspace
-
         local gHRP = GhostCharacter:FindFirstChild("HumanoidRootPart")
         local gHum = GhostCharacter:FindFirstChildOfClass("Humanoid")
 
-        -- FIX #3: align ghost EXACTLY to real HRP (no pop)
         if gHRP and startCFrame then
             gHRP.CFrame = startCFrame
             gHRP.AssemblyLinearVelocity = Vector3.zero
             gHRP.AssemblyAngularVelocity = Vector3.zero
         end
 
-        -- Anchor the real body right away so it can't fall
+        GhostCharacter.Parent = workspace
+
         if realHRP then
             realHRP.Anchored = true
             realHRP.AssemblyLinearVelocity = Vector3.zero
             realHRP.AssemblyAngularVelocity = Vector3.zero
         end
 
-        -- Swap control + camera together
         LocalPlayer.Character = GhostCharacter
 
         if gHum then
@@ -198,14 +270,23 @@ _G.ToggleGhost = function()
             gHum:ChangeState(Enum.HumanoidStateType.Running)
             Camera.CameraSubject = gHum
         end
-        Camera.CFrame = savedCamCFrame
 
-        -- FIX #2: hide real body immediately (not just in the Stepped loop)
+        Camera.CFrame = savedCamCFrame
+        Camera.Focus  = savedCamFocus
+
         HideRealBody()
 
-        -- FIX #3: hold ghost in place for a few frames
         task.spawn(function()
             SettleAt(gHRP, gHum, startCFrame, 4)
+            Camera.CFrame = savedCamCFrame
+            Camera.Focus  = savedCamFocus
+            RunService.RenderStepped:Wait()
+            Camera.CFrame = savedCamCFrame
+            Camera.Focus  = savedCamFocus
+            RunService.RenderStepped:Wait()
+            Camera.CFrame = savedCamCFrame
+            Camera.Focus  = savedCamFocus
+            Camera.CameraType = prevCameraType
         end)
 
         StatusButton.Text = "Ghost: ON"
@@ -213,12 +294,14 @@ _G.ToggleGhost = function()
 
     else
         --========== TURN OFF ==========
-        -- FIX #1: save camera BEFORE anything
         local savedCamCFrame = Camera.CFrame
+        local savedCamFocus  = Camera.Focus
+        local prevCameraType = Camera.CameraType
+        Camera.CameraType = Enum.CameraType.Scriptable
 
         local finalPos = nil
         if GhostCharacter then
-            finalPos = GhostCharacter:GetPivot() -- = ghost HRP CFrame
+            finalPos = GhostCharacter:GetPivot()
         end
 
         local targetChar = RealCharacter
@@ -231,10 +314,9 @@ _G.ToggleGhost = function()
             local realHRP = targetChar:FindFirstChild("HumanoidRootPart") or targetChar.PrimaryPart
             local realHum = targetChar:FindFirstChildOfClass("Humanoid")
 
-            -- Restore visuals first so there's no visible snap
+            -- FIX: restores exact originals (accessories stay non-collidable)
             ShowRealBody()
 
-            -- Teleport real body to the exact ghost position
             if finalPos then
                 targetChar:PivotTo(finalPos)
             end
@@ -244,35 +326,41 @@ _G.ToggleGhost = function()
                 realHRP.Anchored = false
             end
 
-            -- Swap character back
             LocalPlayer.Character = targetChar
 
-            -- FIX #1: put the camera back on the real humanoid
-            -- BEFORE destroying the ghost, so the camera never loses its subject.
             if realHum then
                 Camera.CameraSubject = realHum
                 realHum.PlatformStand = false
                 realHum.Sit = false
                 realHum:ChangeState(Enum.HumanoidStateType.Running)
             end
-            Camera.CFrame = savedCamCFrame
 
-            -- Now it's safe to delete the clone
+            Camera.CFrame = savedCamCFrame
+            Camera.Focus  = savedCamFocus
+
             if GhostCharacter then
                 GhostCharacter:Destroy()
                 GhostCharacter = nil
             end
 
-            -- FIX #3: kill the little drop the humanoid likes to do on re-activate
             task.spawn(function()
                 SettleAt(realHRP, realHum, finalPos, 4)
+                Camera.CFrame = savedCamCFrame
+                Camera.Focus  = savedCamFocus
+                RunService.RenderStepped:Wait()
+                Camera.CFrame = savedCamCFrame
+                Camera.Focus  = savedCamFocus
+                RunService.RenderStepped:Wait()
+                Camera.CFrame = savedCamCFrame
+                Camera.Focus  = savedCamFocus
+                Camera.CameraType = prevCameraType
             end)
         else
-            -- Character respawned while ghost was on -> just clean up
             if GhostCharacter then
                 GhostCharacter:Destroy()
                 GhostCharacter = nil
             end
+            Camera.CameraType = prevCameraType
         end
 
         StatusButton.Text = "Ghost: OFF"
@@ -292,7 +380,6 @@ table.insert(connections, UserInputService.InputBegan:Connect(function(input, ga
     end
 end))
 
--- Brute-force bypass loop
 table.insert(connections, RunService.Stepped:Connect(function()
     if IsGhost and not IsProcessing and RealCharacter and GhostCharacter then
         if LocalPlayer.Character ~= GhostCharacter then
