@@ -1,4 +1,5 @@
 -- Do not the cat
+-- my boi bro ai
 
 -- Flicker best script
 
@@ -28,7 +29,6 @@ local SavedDecals    = {}
 
 local connections = {}
 
---===================== Config persistence =====================
 local CONFIG_FILE = "GhostGUI_Position.txt"
 
 local function SaveGUIPosition()
@@ -51,7 +51,6 @@ local function LoadGUIPosition()
     return nil
 end
 
---===================== GUI =====================
 local function CreateGUI()
     if LocalPlayer.PlayerGui:FindFirstChild("GhostGUI") then
         LocalPlayer.PlayerGui.GhostGUI:Destroy()
@@ -118,7 +117,6 @@ local function CreateGUI()
     end)
 end
 
---===================== State save/restore =====================
 local function SaveOriginalState()
     SavedPartProps = {}
     SavedDecals = {}
@@ -181,9 +179,6 @@ local function ShowRealBody()
     end
 end
 
--- FIX: pins HRP at a CFrame while keeping it anchored during the settle,
--- then RESTORES whatever Anchored state it had before.
--- No ChangeState calls -> idle animation is never interrupted.
 local function PinAt(hrp, cf, frames)
     if not hrp or not cf then return end
     local wasAnchored = hrp.Anchored
@@ -200,14 +195,12 @@ local function PinAt(hrp, cf, frames)
     end
 end
 
---===================== Toggle =====================
 _G.ToggleGhost = function()
     if IsProcessing then return end
     IsProcessing = true
     IsGhost = not IsGhost
 
     if IsGhost then
-        --========== TURN ON ==========
         RealCharacter = LocalPlayer.Character
         if not RealCharacter then
             IsGhost = false
@@ -266,8 +259,6 @@ _G.ToggleGhost = function()
 
         if gHum then
             gHum.Health = math.huge
-            -- FIX: removed gHum:ChangeState(Running) — let it stay in whatever
-            -- state it was cloned with so no animation flash on ON either.
             Camera.CameraSubject = gHum
         end
 
@@ -316,9 +307,6 @@ _G.ToggleGhost = function()
 
             ShowRealBody()
 
-            -- FIX: keep real HRP anchored through teleport + settle.
-            -- Anchored humanoids do NOT transition to Freefall/Land, so the
-            -- idle animation is never interrupted.
             if realHRP then
                 realHRP.Anchored = true
                 realHRP.AssemblyLinearVelocity  = Vector3.zero
@@ -336,8 +324,7 @@ _G.ToggleGhost = function()
                 -- FIX: only reset if actually set — avoids spurious state resets
                 if realHum.PlatformStand then realHum.PlatformStand = false end
                 if realHum.Sit then realHum.Sit = false end
-                -- FIX: removed realHum:ChangeState(Running) — this was the
-                -- main cause of the idle reset tell.
+
             end
 
             Camera.CFrame = savedCamCFrame
@@ -349,8 +336,7 @@ _G.ToggleGhost = function()
             end
 
             task.spawn(function()
-                -- real HRP is already anchored; PinAt keeps it anchored
-                -- through the settle, then we unanchor AFTER.
+
                 PinAt(realHRP, finalPos, 4)
                 if realHRP and realHRP.Parent then
                     realHRP.Anchored = false
@@ -381,7 +367,6 @@ _G.ToggleGhost = function()
     IsProcessing = false
 end
 
---===================== Init =====================
 CreateGUI()
 
 table.insert(connections, UserInputService.InputBegan:Connect(function(input, gameProcessed)
